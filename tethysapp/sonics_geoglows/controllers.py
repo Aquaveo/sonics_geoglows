@@ -3,6 +3,8 @@ from django.shortcuts import render
 from tethys_sdk.gizmos import PlotlyView
 from django.http import HttpResponse, JsonResponse
 
+from tethys_sdk.routing import controller
+
 import io
 import os
 import sys
@@ -22,6 +24,7 @@ from .app import SonicsGeoglows as app
 
 import time
 
+@controller(name='home', url='sonics_geoglows')
 def home(request):
     """
     Controller for the app home page.
@@ -111,7 +114,7 @@ def home(request):
 
     return render(request, 'sonics_geoglows/home.html', context)
 
-
+@controller(name='get_popup_response', url='sonics_geoglows/get-request-data')
 def get_popup_response(request):
     """
     Get simulated data from api
@@ -210,7 +213,7 @@ def gve_1(loc: float, scale: float, shape: float, rp: int or float) -> float:
 
     return ((scale / shape) * (1 - math.exp(shape * (math.log(-math.log(1 - (1 / rp))))))) + loc
 
-
+@controller(name='get_hydrographs', url='sonics_geoglows/get_hydrographs')
 def get_hydrographs(request):
 
     start_time = time.time()
@@ -271,7 +274,7 @@ def get_hydrographs(request):
             'error': f'{"error: " + str(e), "line: " + str(exc_tb.tb_lineno)}',
         })
 
-
+@controller(name='get_observed_discharge_csv', url='sonics_geoglows/get-observed-discharge-csv')
 def get_observed_discharge_csv(request):
     """
     Get historic simulations from ERA Interim
@@ -307,7 +310,7 @@ def get_observed_discharge_csv(request):
             'error': f'{"error: " + str(e), "line: " + str(exc_tb.tb_lineno)}',
         })
 
-
+@controller(name='get_simulated_discharge_csv', url='sonics_geoglows/get-simulated-discharge-csv')
 def get_simulated_discharge_csv(request):
     """
     Get historic simulations from ERA Interim
@@ -343,6 +346,7 @@ def get_simulated_discharge_csv(request):
             'error': f'{"error: " + str(e), "line: " + str(exc_tb.tb_lineno)}',
         })
 
+@controller(name='get_simulated_bc_discharge_csv', url='sonics_geoglows/get-simulated-bc-discharge-csv')
 def get_simulated_bc_discharge_csv(request):
     """
     Get historic simulations from ERA Interim
@@ -378,6 +382,7 @@ def get_simulated_bc_discharge_csv(request):
             'error': f'{"error: " + str(e), "line: " + str(exc_tb.tb_lineno)}',
         })
 
+@controller(name='get-time-series', url='sonics_geoglows/get-time-series')
 def get_time_series(request):
     try:
         get_data = request.GET
@@ -631,7 +636,7 @@ def get_time_series(request):
             'error': f'{"error: " + str(e), "line: " + str(exc_tb.tb_lineno)}',
         })
 
-
+@controller(name='get_sonics_forecast_data_csv', url='sonics_geoglows/get-sonics-forecast-data-csv')
 def get_sonics_forecast_data_csv(request):
     """""
     Returns Forecast data as csv
@@ -720,7 +725,7 @@ def get_sonics_forecast_data_csv(request):
                 'error': f'{"error: " + str(e), "line: " + str(exc_tb.tb_lineno)}',
         })
 
-
+@controller(name='get_geoglows_forecast_data_csv', url='sonics_geoglows/get-geoglows-forecast-data-csv')
 def get_geoglows_forecast_data_csv(request):
     """""
     Returns Forecast data as csv
@@ -769,6 +774,7 @@ def get_geoglows_forecast_data_csv(request):
                 'error': f'{"error: " + str(e), "line: " + str(exc_tb.tb_lineno)}',
         })
 
+@controller(name='get-time-series-bc', url='sonics_geoglows/get-time-series-bc')
 def get_time_series_bc(request):
     try:
         get_data = request.GET
@@ -1190,6 +1196,7 @@ def get_time_series_bc(request):
             'error': f'{"error: " + str(e), "line: " + str(exc_tb.tb_lineno)}',
         })
 
+@controller(name='get_geoglows_forecast_bc_data_csv', url='sonics_geoglows/get-bc-geoglows-forecast-data-csv')
 def get_geoglows_forecast_bc_data_csv(request):
     """""
     Returns Forecast data as csv
