@@ -96,14 +96,6 @@
   <div class="modal-dialog" role="document">
     <div class="modal-content">
       <div class="modal-header">
-        <button
-          type="button"
-          class="close"
-          data-bs-dismiss="modal"
-          aria-label="Close"
-        >
-          <span aria-hidden="true">&times;</span>
-        </button>
         <div class="row">
           <div id="stream-info" class="col-md-8"></div>
           <div class="col-md-4">
@@ -127,6 +119,14 @@
       </div>
       <div class="modal-body">
         <ul class="nav nav-tabs" role="tablist">
+          <li role="presentation" class="active"><a id="hydrographs_tab_link" href="#hydrographs" aria-controls="hydrographs" role="tab" data-toggle="tab">Hydrographs</a></li>
+          <li role="presentation"><a id="forecast_tab_link" href="#forecast" aria-controls="forecast" role="tab" data-toggle="tab">Forecast</a></li>
+          <li role="presentation"><a id="bc_forecast_tab_link" href="#bc_forecast" aria-controls="bc_forecast" role="tab" data-toggle="tab">Corrected Forecast</a></li>
+        </ul>
+
+
+
+        <!-- <ul class="nav nav-tabs" role="tablist">
           <li role="presentation" class="active">
             <a
               id="hydrographs_tab_link"
@@ -157,7 +157,7 @@
               >Corrected Forecast</a
             >
           </li>
-        </ul>
+        </ul> -->
         <!-- Tab panes -->
         <div class="tab-content">
           <div role="tabpanel" class="tab-pane active" id="hydrographs">
