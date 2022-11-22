@@ -7,7 +7,7 @@ class SonicsGeoglows(TethysAppBase):
     """
 
     name = 'SONICS GEOGloWS'
-    index = 'sonics_geoglows:home'
+    index = 'home'
     icon = 'sonics_geoglows/images/sonics_geoglows_logo.png'
     package = 'sonics_geoglows'
     root_url = 'sonics-geoglows'
