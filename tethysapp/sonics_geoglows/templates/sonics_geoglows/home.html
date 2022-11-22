@@ -34,7 +34,7 @@
         class="toggle-layer"
         type="checkbox"
         checked
-        data-toggle="toggle"
+        data-bs-toggle="toggle"
         data-size="mini"
       />
     </div>
@@ -66,20 +66,20 @@
 {% block header_buttons %}
 <div
   class="header-button glyphicon-button"
-  data-toggle="tooltip"
+  data-bs-toggle="tooltip"
   data-placement="bottom"
   title="View Graph"
 >
-  <a data-toggle="modal" data-target="#obsgraph"
+  <a data-bs-toggle="modal" data-target="#obsgraph"
     ><i class="bi bi-globe"></i></a>
 </div>
 <div
   class="header-button glyphicon-button"
-  data-toggle="tooltip"
+  data-bs-toggle="tooltip"
   data-placement="bottom"
   title="Help"
 >
-  <a data-toggle="modal" data-target="#help-modal"
+  <a data-bs-toggle="modal" data-target="#help-modal"
     ><i class="bi bi-question"></i></a>
 </div>
 {% endblock %} {# Use the after_app_content block for modals #} 
@@ -133,7 +133,7 @@
               href="#hydrographs"
               aria-controls="hydrographs"
               role="tab"
-              data-toggle="tab"
+              data-bs-toggle="tab"
               >Hydrographs</a
             >
           </li>
@@ -143,7 +143,7 @@
               href="#forecast"
               aria-controls="forecast"
               role="tab"
-              data-toggle="tab"
+              data-bs-toggle="tab"
               >Forecast</a
             >
           </li>
@@ -153,7 +153,7 @@
               href="#bc_forecast"
               aria-controls="bc_forecast"
               role="tab"
-              data-toggle="tab"
+              data-bs-toggle="tab"
               >Corrected Forecast</a
             >
           </li>
@@ -353,7 +353,7 @@
           >
         </p>
         <p>
-          Add tooltips to any element by adding the <code>data-toggle</code>,
+          Add tooltips to any element by adding the <code>data-bs-toggle</code>,
           <code>data-placement</code>, and <code>title</code> attributes to the
           button. See:
           <a href="https://getbootstrap.com/javascript/#tooltips"
