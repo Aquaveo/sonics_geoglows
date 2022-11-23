@@ -213,7 +213,7 @@ def gve_1(loc: float, scale: float, shape: float, rp: int or float) -> float:
 
     return ((scale / shape) * (1 - math.exp(shape * (math.log(-math.log(1 - (1 / rp))))))) + loc
 
-@controller(name='get_hydrographs', url='sonics-geoglows/get_hydrographs')
+@controller(name='get_hydrographs', url='sonics-geoglows/get-hydrographs')
 def get_hydrographs(request):
 
     start_time = time.time()
