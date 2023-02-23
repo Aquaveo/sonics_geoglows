@@ -125,6 +125,7 @@ def get_popup_response(request):
     simulated_data_path_file = os.path.join(app.get_app_workspace().path, 'simulated_data.json')
     corrected_data_path_file = os.path.join(app.get_app_workspace().path, 'corrected_data.json')
     forecast_data_path_file = os.path.join(app.get_app_workspace().path, 'forecast_data.json')
+    records_data_path_file = os.path.join(app.get_app_workspace().path, 'records_data.json')
 
     f = open(observed_data_path_file, 'w')
     f.close()
@@ -134,6 +135,8 @@ def get_popup_response(request):
     f3.close()
     f4 = open(forecast_data_path_file, 'w')
     f4.close()
+    f5 = open(records_data_path_file, 'w')
+    f5.close()
 
     return_obj = {}
 
@@ -150,8 +153,8 @@ def get_popup_response(request):
         forecast_nc_list = sorted(glob(os.path.join(folder, "*.nc")), reverse=True)
         nc_file = forecast_nc_list[0]
 
-        qout_datasets = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).qr
-        time_dataset = qout_datasets.time
+        qout_datasets = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).qr_hist
+        time_dataset = qout_datasets.time_hist
 
         historical_simulation_df = pd.DataFrame(qout_datasets.values, index=time_dataset.values, columns=['Observed Streamflow'])
         historical_simulation_df.index.name = 'Datetime'
@@ -163,7 +166,6 @@ def get_popup_response(request):
         historical_simulation_df.index = pd.to_datetime(historical_simulation_df.index)
         historical_simulation_df.index.name = 'datetime'
         historical_simulation_df.to_json(observed_data_file_path,orient='columns')
-
 
         '''Get Simulated Data'''
         simulated_df = geoglows.streamflow.historic_simulation(comid, forcing='era_5', return_format='csv')
@@ -181,6 +183,20 @@ def get_popup_response(request):
         simulated_df.index = pd.to_datetime(simulated_df.index)
         simulated_df.index.name = 'Datetime'
         simulated_df.to_json(simulated_data_file_path)
+
+        try:
+            records_data_file_path = os.path.join(app.get_app_workspace().path, 'records_data.json')
+            records = geoglows.streamflow.forecast_records(comid)
+            records.index = pd.to_datetime(records.index)
+            records[records < 0] = 0
+            records.index = records.index.to_series().dt.strftime("%Y-%m-%d %H:%M:%S")
+            records.index = pd.to_datetime(records.index)
+            records.to_json(records_data_file_path, orient='columns')
+
+        except Exception as e:
+            exc_type, exc_obj, exc_tb = sys.exc_info()
+            print("error: " + str(e))
+            print("line: " + str(exc_tb.tb_lineno))
 
         print("finished get_popup_response")
 
@@ -235,7 +251,7 @@ def get_hydrographs(request):
         '''Get Simulated Data'''
         simulated_data_file_path = os.path.join(app.get_app_workspace().path, 'simulated_data.json')
         simulated_df = pd.read_json(simulated_data_file_path, convert_dates=True)
-        simulated_df.index = pd.to_datetime(simulated_df.index)
+        simulated_df.index = pd.to_datetime(simulated_df.index, unit='ms')
         simulated_df.sort_index(inplace=True, ascending=True)
 
         '''Correct the Bias in Simulation'''
@@ -254,8 +270,8 @@ def get_hydrographs(request):
         corrected_Q = go.Scatter(x=corrected_df.index, y=corrected_df.iloc[:, 0].values, name='Corrected GEOGloWS', )
 
         layout = go.Layout(
-	        title='Simulated Streamflow at {0}'.format(comid), xaxis=dict(title='Dates',),
-	        yaxis=dict(title='Streamflow (m<sup>3</sup>/s)', autorange=True), showlegend=True)
+            title='Simulated Streamflow at {0}'.format(comid), xaxis=dict(title='Dates',),
+            yaxis=dict(title='Streamflow (m<sup>3</sup>/s)', autorange=True), showlegend=True)
 
         chart_obj = PlotlyView(go.Figure(data=[observed_Q, simulated_Q, corrected_Q], layout=layout))
 
@@ -404,28 +420,39 @@ def get_time_series(request):
         '''Getting Forecast Stats'''
         if startdate != '':
             nc_file = folder + '/PISCO_HyD_ARNOVIC_v1.0_' + startdate + '.nc'
-            qout_datasets = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).qr
-            time_dataset = qout_datasets.time
+            qout_datasets = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).qr_hist
+            time_dataset = qout_datasets.time_hist
             historical_simulation_df = pd.DataFrame(qout_datasets.values, index=time_dataset.values, columns=['Streamflow (m3/s)'])
             initial_condition = historical_simulation_df.loc[historical_simulation_df.index == pd.to_datetime(historical_simulation_df.index[-1])]
-            historical_simulation_df.index = pd.to_datetime(historical_simulation_df.index)
-            historical_simulation_df.index = historical_simulation_df.index.to_series().dt.strftime("%Y-%m-%d")
-            historical_simulation_df.index = pd.to_datetime(historical_simulation_df.index)
+            initial_condition.index = pd.to_datetime(initial_condition.index)
+            initial_condition.index = initial_condition.index.to_series().dt.strftime("%Y-%m-%d")
+            initial_condition.index = pd.to_datetime(initial_condition.index)
 
-            '''ETA Forecast'''
-            qout_datasets = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).qr_eta
-            time_dataset = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).time_eta
-            forecast_eta_df = pd.DataFrame(qout_datasets.values, index=time_dataset.values, columns=['Streamflow (m3/s)'])
-            forecast_eta_df.index.name = 'Datetime'
-            forecast_eta_df = forecast_eta_df.append(initial_condition)
-            forecast_eta_df.sort_index(inplace=True)
-            forecast_eta_df.index = pd.to_datetime(forecast_eta_df.index)
-            forecast_eta_df.index = forecast_eta_df.index.to_series().dt.strftime("%Y-%m-%d")
-            forecast_eta_df.index = pd.to_datetime(forecast_eta_df.index)
+            '''ETA eqm Forecast'''
+            qout_datasets = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).qr_eta_eqm
+            time_dataset = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).time_frst
+            forecast_eta_eqm_df = pd.DataFrame(qout_datasets.values, index=time_dataset.values, columns=['Streamflow (m3/s)'])
+            forecast_eta_eqm_df.index.name = 'Datetime'
+            forecast_eta_eqm_df = forecast_eta_eqm_df.append(initial_condition)
+            forecast_eta_eqm_df.sort_index(inplace=True)
+            forecast_eta_eqm_df.index = pd.to_datetime(forecast_eta_eqm_df.index)
+            forecast_eta_eqm_df.index = forecast_eta_eqm_df.index.to_series().dt.strftime("%Y-%m-%d")
+            forecast_eta_eqm_df.index = pd.to_datetime(forecast_eta_eqm_df.index)
+
+            '''ETA scal Forecast'''
+            qout_datasets = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).qr_eta_scal
+            time_dataset = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).time_frst
+            forecast_eta_scal_df = pd.DataFrame(qout_datasets.values, index=time_dataset.values, columns=['Streamflow (m3/s)'])
+            forecast_eta_scal_df.index.name = 'Datetime'
+            forecast_eta_scal_df = forecast_eta_eqm_df.append(initial_condition)
+            forecast_eta_scal_df.sort_index(inplace=True)
+            forecast_eta_scal_df.index = pd.to_datetime(forecast_eta_scal_df.index)
+            forecast_eta_scal_df.index = forecast_eta_scal_df.index.to_series().dt.strftime("%Y-%m-%d")
+            forecast_eta_scal_df.index = pd.to_datetime(forecast_eta_scal_df.index)
 
             '''GFS Forecast'''
             qout_datasets = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).qr_gfs
-            time_dataset = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).time_gfs
+            time_dataset = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).time_frst
             forecast_gfs_df = pd.DataFrame(qout_datasets.values, index=time_dataset.values, columns=['Streamflow (m3/s)'])
             forecast_gfs_df.index.name = 'Datetime'
             forecast_gfs_df = forecast_gfs_df.append(initial_condition)
@@ -433,6 +460,17 @@ def get_time_series(request):
             forecast_gfs_df.index = pd.to_datetime(forecast_gfs_df.index)
             forecast_gfs_df.index = forecast_gfs_df.index.to_series().dt.strftime("%Y-%m-%d")
             forecast_gfs_df.index = pd.to_datetime(forecast_gfs_df.index)
+
+            '''WRF Forecast'''
+            qout_datasets = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).qr_wrf
+            time_dataset = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).time_frst
+            forecast_wrf_df = pd.DataFrame(qout_datasets.values, index=time_dataset.values, columns=['Streamflow (m3/s)'])
+            forecast_wrf_df.index.name = 'Datetime'
+            forecast_wrf_df = forecast_wrf_df.append(initial_condition)
+            forecast_wrf_df.sort_index(inplace=True)
+            forecast_wrf_df.index = pd.to_datetime(forecast_wrf_df.index)
+            forecast_wrf_df.index = forecast_wrf_df.index.to_series().dt.strftime("%Y-%m-%d")
+            forecast_wrf_df.index = pd.to_datetime(forecast_wrf_df.index)
 
             '''GEOGloWs Forecast'''
             res = requests.get('https://geoglows.ecmwf.int/api/ForecastStats/?reach_id=' + comid + '&date=' + startdate + '&return_format=csv', verify=False).content
@@ -440,28 +478,39 @@ def get_time_series(request):
         else:
             forecast_nc_list = sorted(glob(os.path.join(folder, "*.nc")), reverse=True)
             nc_file = forecast_nc_list[0]
-            qout_datasets = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).qr
-            time_dataset = qout_datasets.time
+            qout_datasets = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).qr_hist
+            time_dataset = qout_datasets.time_hist
             historical_simulation_df = pd.DataFrame(qout_datasets.values, index=time_dataset.values, columns=['Streamflow (m3/s)'])
             initial_condition = historical_simulation_df.loc[historical_simulation_df.index == pd.to_datetime(historical_simulation_df.index[-1])]
             historical_simulation_df.index = pd.to_datetime(historical_simulation_df.index)
             historical_simulation_df.index = historical_simulation_df.index.to_series().dt.strftime("%Y-%m-%d")
             historical_simulation_df.index = pd.to_datetime(historical_simulation_df.index)
 
-            '''ETA Forecast'''
-            qout_datasets = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).qr_eta
-            time_dataset = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).time_eta
-            forecast_eta_df = pd.DataFrame(qout_datasets.values, index=time_dataset.values, columns=['Streamflow (m3/s)'])
-            forecast_eta_df.index.name = 'Datetime'
-            forecast_eta_df = forecast_eta_df.append(initial_condition)
-            forecast_eta_df.sort_index(inplace=True)
-            forecast_eta_df.index = pd.to_datetime(forecast_eta_df.index)
-            forecast_eta_df.index = forecast_eta_df.index.to_series().dt.strftime("%Y-%m-%d")
-            forecast_eta_df.index = pd.to_datetime(forecast_eta_df.index)
+            '''ETA eqm Forecast'''
+            qout_datasets = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).qr_eta_eqm
+            time_dataset = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).time_frst
+            forecast_eta_eqm_df = pd.DataFrame(qout_datasets.values, index=time_dataset.values, columns=['Streamflow (m3/s)'])
+            forecast_eta_eqm_df.index.name = 'Datetime'
+            forecast_eta_eqm_df = forecast_eta_eqm_df.append(initial_condition)
+            forecast_eta_eqm_df.sort_index(inplace=True)
+            forecast_eta_eqm_df.index = pd.to_datetime(forecast_eta_eqm_df.index)
+            forecast_eta_eqm_df.index = forecast_eta_eqm_df.index.to_series().dt.strftime("%Y-%m-%d")
+            forecast_eta_eqm_df.index = pd.to_datetime(forecast_eta_eqm_df.index)
+
+            '''ETA scal Forecast'''
+            qout_datasets = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).qr_eta_scal
+            time_dataset = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).time_frst
+            forecast_eta_scal_df = pd.DataFrame(qout_datasets.values, index=time_dataset.values, columns=['Streamflow (m3/s)'])
+            forecast_eta_scal_df.index.name = 'Datetime'
+            forecast_eta_scal_df = forecast_eta_eqm_df.append(initial_condition)
+            forecast_eta_scal_df.sort_index(inplace=True)
+            forecast_eta_scal_df.index = pd.to_datetime(forecast_eta_scal_df.index)
+            forecast_eta_scal_df.index = forecast_eta_scal_df.index.to_series().dt.strftime("%Y-%m-%d")
+            forecast_eta_scal_df.index = pd.to_datetime(forecast_eta_scal_df.index)
 
             '''GFS Forecast'''
             qout_datasets = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).qr_gfs
-            time_dataset = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).time_gfs
+            time_dataset = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).time_frst
             forecast_gfs_df = pd.DataFrame(qout_datasets.values, index=time_dataset.values, columns=['Streamflow (m3/s)'])
             forecast_gfs_df.index.name = 'Datetime'
             forecast_gfs_df = forecast_gfs_df.append(initial_condition)
@@ -469,6 +518,17 @@ def get_time_series(request):
             forecast_gfs_df.index = pd.to_datetime(forecast_gfs_df.index)
             forecast_gfs_df.index = forecast_gfs_df.index.to_series().dt.strftime("%Y-%m-%d")
             forecast_gfs_df.index = pd.to_datetime(forecast_gfs_df.index)
+
+            '''WRF Forecast'''
+            qout_datasets = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).qr_wrf
+            time_dataset = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).time_frst
+            forecast_wrf_df = pd.DataFrame(qout_datasets.values, index=time_dataset.values, columns=['Streamflow (m3/s)'])
+            forecast_wrf_df.index.name = 'Datetime'
+            forecast_wrf_df = forecast_wrf_df.append(initial_condition)
+            forecast_wrf_df.sort_index(inplace=True)
+            forecast_wrf_df.index = pd.to_datetime(forecast_wrf_df.index)
+            forecast_wrf_df.index = forecast_wrf_df.index.to_series().dt.strftime("%Y-%m-%d")
+            forecast_wrf_df.index = pd.to_datetime(forecast_wrf_df.index)
 
             '''GEOGloWs Forecast'''
             date = nc_file[len(folder) + 1 + 23:-3]
@@ -481,25 +541,29 @@ def get_time_series(request):
         stats_df.index = stats_df.index.to_series().dt.strftime("%Y-%m-%d %H:%M:%S")
         stats_df.index = pd.to_datetime(stats_df.index)
 
-        records = geoglows.streamflow.forecast_records(comid)
-        records.index = pd.to_datetime(records.index)
-        records[records < 0] = 0
-        records.index = records.index.to_series().dt.strftime("%Y-%m-%d %H:%M:%S")
-        records.index = pd.to_datetime(records.index)
+        records = pd.DataFrame()
+
+        try:
+            records_data_file_path = os.path.join(app.get_app_workspace().path, 'records_data.json')
+            records = pd.read_json(records_data_file_path, convert_dates=True)
+            records.index = pd.to_datetime(records.index)
+            records.sort_index(inplace=True, ascending=True)
+            records.index = records.index.to_series().dt.strftime("%Y-%m-%d %H:%M:%S")
+            records.index = pd.to_datetime(records.index)
+
+        except Exception as e:
+            exc_type, exc_obj, exc_tb = sys.exc_info()
+            print("error: " + str(e))
+            print("line: " + str(exc_tb.tb_lineno))
+
 
         '''Return Periods SONICS'''
-        max_annual_flow = historical_simulation_df.groupby(historical_simulation_df.index.strftime("%Y")).max()
-        params = distr.gev.lmom_fit(max_annual_flow.iloc[:, 0].values.tolist())
-
+        return_periods_values = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).threshold
+        return_periods_values = return_periods_values.values
         return_periods = [10, 5, 2.33]
 
-        return_periods_values = []
-
-        for rp in return_periods:
-            return_periods_values.append(gve_1(params['loc'], params['scale'], params['c'], rp))
-
-        d = {'rivid': [comid], 'return_period_10': [return_periods_values[0]],
-             'return_period_5': [return_periods_values[1]], 'return_period_2_33': [return_periods_values[2]]}
+        d = {'rivid': [comid], 'return_period_10': [return_periods_values[2]],
+             'return_period_5': [return_periods_values[1]], 'return_period_2_33': [return_periods_values[0]]}
 
         rperiods_sonics = pd.DataFrame(data=d)
         rperiods_sonics.set_index('rivid', inplace=True)
@@ -508,11 +572,13 @@ def get_time_series(request):
         max_annual_flow = simulated_df.groupby(simulated_df.index.strftime("%Y")).max()
         params = distr.gev.lmom_fit(max_annual_flow.iloc[:, 0].values.tolist())
 
-        for rp in return_periods:
-            return_periods_values.append(gve_1(params['loc'], params['scale'], params['c'], rp))
+        return_periods_values_g = []
 
-        d = {'rivid': [comid], 'return_period_10': [return_periods_values[0]],
-             'return_period_5': [return_periods_values[1]], 'return_period_2_33': [return_periods_values[2]]}
+        for rp in return_periods:
+            return_periods_values_g.append(gve_1(params['loc'], params['scale'], params['c'], rp))
+
+        d = {'rivid': [comid], 'return_period_10': [return_periods_values_g[0]],
+             'return_period_5': [return_periods_values_g[1]], 'return_period_2_33': [return_periods_values_g[2]]}
 
         rperiods_geoglows = pd.DataFrame(data=d)
         rperiods_geoglows.set_index('rivid', inplace=True)
@@ -525,13 +591,20 @@ def get_time_series(request):
         x_vals = (stats_df.index[0], stats_df.index[len(stats_df.index) - 1], stats_df.index[len(stats_df.index) - 1], stats_df.index[0])
         max_visible = max(stats_df.max())
 
-        record_plot = records.copy()
-        record_plot = record_plot.loc[record_plot.index >= pd.to_datetime(stats_df.index[0] - dt.timedelta(days=8))]
-        record_plot = record_plot.loc[record_plot.index <= pd.to_datetime(stats_df.index[0] + dt.timedelta(days=2))]
+        try:
+            record_plot = records.copy()
+            record_plot = record_plot.loc[record_plot.index >= pd.to_datetime(stats_df.index[0] - dt.timedelta(days=8))]
+            record_plot = record_plot.loc[record_plot.index <= pd.to_datetime(stats_df.index[0] + dt.timedelta(days=2))]
+
+        except Exception as e:
+            exc_type, exc_obj, exc_tb = sys.exc_info()
+            print("error: " + str(e))
+            print("line: " + str(exc_tb.tb_lineno))
+
 
         if len(records.index) > 0:
             hydroviewer_figure.add_trace(go.Scatter(
-                name='1st days forecasts',
+                name='1st days forecasts GEOGloWS',
                 x=record_plot.index,
                 y=record_plot.iloc[:, 0].values,
                 line=dict(
@@ -546,12 +619,12 @@ def get_time_series(request):
         records_df = historical_simulation_df.loc[historical_simulation_df.index >= pd.to_datetime(historical_simulation_df.index[-1] - dt.timedelta(days=8))]
         records_df = records_df.loc[records_df.index <= pd.to_datetime(historical_simulation_df.index[-1] + dt.timedelta(days=2))]
 
-        if len(records_df.index) > 0:
+        if len(records.index) > 0:
             hydroviewer_figure.add_trace(go.Scatter(
-                name='SONICS',
+                name='1st days forecasts SONICS',
                 x=records_df.index,
                 y=records_df.iloc[:, 0].values,
-                line=dict(color='green', )
+                line=dict(color='#FFA15A', )
             ))
 
             x_vals = (records_df.index[0], stats_df.index[len(stats_df.index) - 1], stats_df.index[len(stats_df.index) - 1],records_df.index[0])
@@ -569,16 +642,38 @@ def get_time_series(request):
 
             max_visible = max(max(forecast_gfs_df.max()), max_visible)
 
-        if len(forecast_eta_df.index) > 0:
+        if len(forecast_eta_eqm_df.index) > 0:
             hydroviewer_figure.add_trace(go.Scatter(
-                name='ETA Forecast',
-                x=forecast_eta_df.index,
-                y=forecast_eta_df['Streamflow (m3/s)'],
+                name='ETA eqm Forecast',
+                x=forecast_eta_eqm_df.index,
+                y=forecast_eta_eqm_df['Streamflow (m3/s)'],
                 showlegend=True,
                 line=dict(color='blue', dash='dash')
             ))
 
-            max_visible = max(max(forecast_eta_df.max()), max_visible)
+            max_visible = max(max(forecast_eta_eqm_df.max()), max_visible)
+
+        if len(forecast_eta_scal_df.index) > 0:
+            hydroviewer_figure.add_trace(go.Scatter(
+                name='ETA scal Forecast',
+                x=forecast_eta_scal_df.index,
+                y=forecast_eta_scal_df['Streamflow (m3/s)'],
+                showlegend=True,
+                line=dict(color='green', dash='dash')
+            ))
+
+            max_visible = max(max(forecast_eta_scal_df.max()), max_visible)
+
+        if len(forecast_wrf_df.index) > 0:
+            hydroviewer_figure.add_trace(go.Scatter(
+                name='WRF Forecast',
+                x=forecast_wrf_df.index,
+                y=forecast_wrf_df['Streamflow (m3/s)'],
+                showlegend=True,
+                line=dict(color='black', dash='dash')
+            ))
+
+            max_visible = max(max(forecast_wrf_df.max()), max_visible)
 
         '''Getting Return Periods'''
         r2_33 = int(rperiods_geoglows.iloc[0]['return_period_2_33'])
@@ -656,57 +751,93 @@ def get_sonics_forecast_data_csv(request):
         '''Getting Forecast Stats'''
         if startdate != '':
             nc_file = folder + '/PISCO_HyD_ARNOVIC_v1.0_' + startdate + '.nc'
-            qout_datasets = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).qr
-            time_dataset = qout_datasets.time
+            qout_datasets = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).qr_hist
+            time_dataset = qout_datasets.time_hist
             historical_simulation_df = pd.DataFrame(qout_datasets.values, index=time_dataset.values, columns=['Streamflow (m3/s)'])
             initial_condition = historical_simulation_df.loc[historical_simulation_df.index == pd.to_datetime(historical_simulation_df.index[-1])]
 
-            '''ETA Forecast'''
-            qout_datasets = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).qr_eta
-            time_dataset = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).time_eta
-            forecast_eta_df = pd.DataFrame(qout_datasets.values, index=time_dataset.values, columns=['Streamflow (m3/s)'])
-            forecast_eta_df.index.name = 'Datetime'
-            forecast_eta_df = forecast_eta_df.append(initial_condition)
-            forecast_eta_df.sort_index(inplace=True)
-            forecast_eta_df.rename(columns={"Streamflow (m3/s)": "ETA Streamflow (m3/s)"}, inplace=True)
+            '''ETA eqm Forecast'''
+            qout_datasets = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).qr_eta_eqm
+            time_dataset = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).time_frst
+            forecast_eta_eqm_df = pd.DataFrame(qout_datasets.values, index=time_dataset.values, columns=['Streamflow (m3/s)'])
+            forecast_eta_eqm_df.index.name = 'Datetime'
+            forecast_eta_eqm_df = forecast_eta_eqm_df.append(initial_condition)
+            forecast_eta_eqm_df.sort_index(inplace=True)
+            forecast_eta_eqm_df.rename(columns={"Streamflow (m3/s)": "ETA eqm Streamflow (m3/s)"}, inplace=True)
+
+            '''ETA scal Forecast'''
+            qout_datasets = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).qr_eta_scal
+            time_dataset = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).time_frst
+            forecast_eta_scal_df = pd.DataFrame(qout_datasets.values, index=time_dataset.values, columns=['Streamflow (m3/s)'])
+            forecast_eta_scal_df.index.name = 'Datetime'
+            forecast_eta_scal_df = forecast_eta_scal_df.append(initial_condition)
+            forecast_eta_scal_df.sort_index(inplace=True)
+            forecast_eta_scal_df.rename(columns={"Streamflow (m3/s)": "ETA scal Streamflow (m3/s)"}, inplace=True)
 
             '''GFS Forecast'''
             qout_datasets = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).qr_gfs
-            time_dataset = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).time_gfs
+            time_dataset = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).time_frst
             forecast_gfs_df = pd.DataFrame(qout_datasets.values, index=time_dataset.values, columns=['Streamflow (m3/s)'])
             forecast_gfs_df.index.name = 'Datetime'
             forecast_gfs_df = forecast_gfs_df.append(initial_condition)
             forecast_gfs_df.sort_index(inplace=True)
             forecast_gfs_df.rename(columns={"Streamflow (m3/s)": "GFS Streamflow (m3/s)"}, inplace=True)
+
+            '''WRF Forecast'''
+            qout_datasets = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).qr_wrf
+            time_dataset = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).time_frst
+            forecast_wrf_df = pd.DataFrame(qout_datasets.values, index=time_dataset.values, columns=['Streamflow (m3/s)'])
+            forecast_wrf_df.index.name = 'Datetime'
+            forecast_wrf_df = forecast_wrf_df.append(initial_condition)
+            forecast_wrf_df.sort_index(inplace=True)
+            forecast_wrf_df.rename(columns={"Streamflow (m3/s)": "WRF Streamflow (m3/s)"}, inplace=True)
 
         else:
 
             forecast_nc_list = sorted(glob(os.path.join(folder, "*.nc")), reverse=True)
             nc_file = forecast_nc_list[0]
-            qout_datasets = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).qr
-            time_dataset = qout_datasets.time
+            qout_datasets = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).qr_hist
+            time_dataset = qout_datasets.time_hist
             historical_simulation_df = pd.DataFrame(qout_datasets.values, index=time_dataset.values, columns=['Streamflow (m3/s)'])
             initial_condition = historical_simulation_df.loc[historical_simulation_df.index == pd.to_datetime(historical_simulation_df.index[-1])]
 
-            '''ETA Forecast'''
-            qout_datasets = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).qr_eta
-            time_dataset = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).time_eta
-            forecast_eta_df = pd.DataFrame(qout_datasets.values, index=time_dataset.values, columns=['Streamflow (m3/s)'])
-            forecast_eta_df.index.name = 'Datetime'
-            forecast_eta_df = forecast_eta_df.append(initial_condition)
-            forecast_eta_df.sort_index(inplace=True)
-            forecast_eta_df.rename(columns={"Streamflow (m3/s)": "ETA Streamflow (m3/s)"}, inplace=True)
+            '''ETA eqm Forecast'''
+            qout_datasets = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).qr_eta_eqm
+            time_dataset = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).time_frst
+            forecast_eta_eqm_df = pd.DataFrame(qout_datasets.values, index=time_dataset.values, columns=['Streamflow (m3/s)'])
+            forecast_eta_eqm_df.index.name = 'Datetime'
+            forecast_eta_eqm_df = forecast_eta_eqm_df.append(initial_condition)
+            forecast_eta_eqm_df.sort_index(inplace=True)
+            forecast_eta_eqm_df.rename(columns={"Streamflow (m3/s)": "ETA eqm Streamflow (m3/s)"}, inplace=True)
+
+            '''ETA scal Forecast'''
+            qout_datasets = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).qr_eta_scal
+            time_dataset = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).time_frst
+            forecast_eta_scal_df = pd.DataFrame(qout_datasets.values, index=time_dataset.values, columns=['Streamflow (m3/s)'])
+            forecast_eta_scal_df.index.name = 'Datetime'
+            forecast_eta_scal_df = forecast_eta_scal_df.append(initial_condition)
+            forecast_eta_scal_df.sort_index(inplace=True)
+            forecast_eta_scal_df.rename(columns={"Streamflow (m3/s)": "ETA scal Streamflow (m3/s)"}, inplace=True)
 
             '''GFS Forecast'''
             qout_datasets = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).qr_gfs
-            time_dataset = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).time_gfs
+            time_dataset = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).time_frst
             forecast_gfs_df = pd.DataFrame(qout_datasets.values, index=time_dataset.values, columns=['Streamflow (m3/s)'])
             forecast_gfs_df.index.name = 'Datetime'
             forecast_gfs_df = forecast_gfs_df.append(initial_condition)
             forecast_gfs_df.sort_index(inplace=True)
             forecast_gfs_df.rename(columns={"Streamflow (m3/s)": "GFS Streamflow (m3/s)"}, inplace=True)
 
-        forecast_df = pd.concat([forecast_eta_df, forecast_gfs_df], axis=1)
+            '''WRF Forecast'''
+            qout_datasets = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).qr_wrf
+            time_dataset = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).time_frst
+            forecast_wrf_df = pd.DataFrame(qout_datasets.values, index=time_dataset.values, columns=['Streamflow (m3/s)'])
+            forecast_wrf_df.index.name = 'Datetime'
+            forecast_wrf_df = forecast_wrf_df.append(initial_condition)
+            forecast_wrf_df.sort_index(inplace=True)
+            forecast_wrf_df.rename(columns={"Streamflow (m3/s)": "WRF Streamflow (m3/s)"}, inplace=True)
+
+        forecast_df = pd.concat([forecast_eta_eqm_df, forecast_eta_scal_df, forecast_gfs_df, forecast_wrf_df], axis=1)
 
         # Writing CSV
         response = HttpResponse(content_type='text/csv')
@@ -808,28 +939,39 @@ def get_time_series_bc(request):
         '''Getting Forecast Stats'''
         if startdate != '':
             nc_file = folder + '/PISCO_HyD_ARNOVIC_v1.0_' + startdate + '.nc'
-            qout_datasets = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).qr
-            time_dataset = qout_datasets.time
+            qout_datasets = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).qr_hist
+            time_dataset = qout_datasets.time_hist
             historical_simulation_df = pd.DataFrame(qout_datasets.values, index=time_dataset.values, columns=['Streamflow (m3/s)'])
             initial_condition = historical_simulation_df.loc[historical_simulation_df.index == pd.to_datetime(historical_simulation_df.index[-1])]
             historical_simulation_df.index = pd.to_datetime(historical_simulation_df.index)
             historical_simulation_df.index = historical_simulation_df.index.to_series().dt.strftime("%Y-%m-%d")
             historical_simulation_df.index = pd.to_datetime(historical_simulation_df.index)
 
-            '''ETA Forecast'''
-            qout_datasets = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).qr_eta
-            time_dataset = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).time_eta
-            forecast_eta_df = pd.DataFrame(qout_datasets.values, index=time_dataset.values, columns=['Streamflow (m3/s)'])
-            forecast_eta_df.index.name = 'Datetime'
-            forecast_eta_df = forecast_eta_df.append(initial_condition)
-            forecast_eta_df.sort_index(inplace=True)
-            forecast_eta_df.index = pd.to_datetime(forecast_eta_df.index)
-            forecast_eta_df.index = forecast_eta_df.index.to_series().dt.strftime("%Y-%m-%d")
-            forecast_eta_df.index = pd.to_datetime(forecast_eta_df.index)
+            '''ETA eqm Forecast'''
+            qout_datasets = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).qr_eta_eqm
+            time_dataset = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).time_frst
+            forecast_eta_eqm_df = pd.DataFrame(qout_datasets.values, index=time_dataset.values, columns=['Streamflow (m3/s)'])
+            forecast_eta_eqm_df.index.name = 'Datetime'
+            forecast_eta_eqm_df = forecast_eta_eqm_df.append(initial_condition)
+            forecast_eta_eqm_df.sort_index(inplace=True)
+            forecast_eta_eqm_df.index = pd.to_datetime(forecast_eta_eqm_df.index)
+            forecast_eta_eqm_df.index = forecast_eta_eqm_df.index.to_series().dt.strftime("%Y-%m-%d")
+            forecast_eta_eqm_df.index = pd.to_datetime(forecast_eta_eqm_df.index)
+
+            '''ETA scal Forecast'''
+            qout_datasets = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).qr_eta_scal
+            time_dataset = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).time_frst
+            forecast_eta_scal_df = pd.DataFrame(qout_datasets.values, index=time_dataset.values, columns=['Streamflow (m3/s)'])
+            forecast_eta_scal_df.index.name = 'Datetime'
+            forecast_eta_scal_df = forecast_eta_eqm_df.append(initial_condition)
+            forecast_eta_scal_df.sort_index(inplace=True)
+            forecast_eta_scal_df.index = pd.to_datetime(forecast_eta_scal_df.index)
+            forecast_eta_scal_df.index = forecast_eta_scal_df.index.to_series().dt.strftime("%Y-%m-%d")
+            forecast_eta_scal_df.index = pd.to_datetime(forecast_eta_scal_df.index)
 
             '''GFS Forecast'''
             qout_datasets = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).qr_gfs
-            time_dataset = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).time_gfs
+            time_dataset = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).time_frst
             forecast_gfs_df = pd.DataFrame(qout_datasets.values, index=time_dataset.values, columns=['Streamflow (m3/s)'])
             forecast_gfs_df.index.name = 'Datetime'
             forecast_gfs_df = forecast_gfs_df.append(initial_condition)
@@ -837,6 +979,17 @@ def get_time_series_bc(request):
             forecast_gfs_df.index = pd.to_datetime(forecast_gfs_df.index)
             forecast_gfs_df.index = forecast_gfs_df.index.to_series().dt.strftime("%Y-%m-%d")
             forecast_gfs_df.index = pd.to_datetime(forecast_gfs_df.index)
+
+            '''WRF Forecast'''
+            qout_datasets = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).qr_wrf
+            time_dataset = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).time_frst
+            forecast_wrf_df = pd.DataFrame(qout_datasets.values, index=time_dataset.values, columns=['Streamflow (m3/s)'])
+            forecast_wrf_df.index.name = 'Datetime'
+            forecast_wrf_df = forecast_wrf_df.append(initial_condition)
+            forecast_wrf_df.sort_index(inplace=True)
+            forecast_wrf_df.index = pd.to_datetime(forecast_wrf_df.index)
+            forecast_wrf_df.index = forecast_wrf_df.index.to_series().dt.strftime("%Y-%m-%d")
+            forecast_wrf_df.index = pd.to_datetime(forecast_wrf_df.index)
 
             '''GEOGloWs Forecast'''
             res = requests.get('https://geoglows.ecmwf.int/api/ForecastEnsembles/?reach_id=' + comid + '&date=' + startdate + '&return_format=csv',verify=False).content
@@ -844,28 +997,39 @@ def get_time_series_bc(request):
         else:
             forecast_nc_list = sorted(glob(os.path.join(folder, "*.nc")), reverse=True)
             nc_file = forecast_nc_list[0]
-            qout_datasets = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).qr
-            time_dataset = qout_datasets.time
+            qout_datasets = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).qr_hist
+            time_dataset = qout_datasets.time_hist
             historical_simulation_df = pd.DataFrame(qout_datasets.values, index=time_dataset.values, columns=['Streamflow (m3/s)'])
             initial_condition = historical_simulation_df.loc[historical_simulation_df.index == pd.to_datetime(historical_simulation_df.index[-1])]
             historical_simulation_df.index = pd.to_datetime(historical_simulation_df.index)
             historical_simulation_df.index = historical_simulation_df.index.to_series().dt.strftime("%Y-%m-%d")
             historical_simulation_df.index = pd.to_datetime(historical_simulation_df.index)
 
-            '''ETA Forecast'''
-            qout_datasets = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).qr_eta
-            time_dataset = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).time_eta
-            forecast_eta_df = pd.DataFrame(qout_datasets.values, index=time_dataset.values, columns=['Streamflow (m3/s)'])
-            forecast_eta_df.index.name = 'Datetime'
-            forecast_eta_df = forecast_eta_df.append(initial_condition)
-            forecast_eta_df.sort_index(inplace=True)
-            forecast_eta_df.index = pd.to_datetime(forecast_eta_df.index)
-            forecast_eta_df.index = forecast_eta_df.index.to_series().dt.strftime("%Y-%m-%d")
-            forecast_eta_df.index = pd.to_datetime(forecast_eta_df.index)
+            '''ETA eqm Forecast'''
+            qout_datasets = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).qr_eta_eqm
+            time_dataset = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).time_frst
+            forecast_eta_eqm_df = pd.DataFrame(qout_datasets.values, index=time_dataset.values, columns=['Streamflow (m3/s)'])
+            forecast_eta_eqm_df.index.name = 'Datetime'
+            forecast_eta_eqm_df = forecast_eta_eqm_df.append(initial_condition)
+            forecast_eta_eqm_df.sort_index(inplace=True)
+            forecast_eta_eqm_df.index = pd.to_datetime(forecast_eta_eqm_df.index)
+            forecast_eta_eqm_df.index = forecast_eta_eqm_df.index.to_series().dt.strftime("%Y-%m-%d")
+            forecast_eta_eqm_df.index = pd.to_datetime(forecast_eta_eqm_df.index)
+
+            '''ETA scal Forecast'''
+            qout_datasets = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).qr_eta_scal
+            time_dataset = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).time_frst
+            forecast_eta_scal_df = pd.DataFrame(qout_datasets.values, index=time_dataset.values, columns=['Streamflow (m3/s)'])
+            forecast_eta_scal_df.index.name = 'Datetime'
+            forecast_eta_scal_df = forecast_eta_eqm_df.append(initial_condition)
+            forecast_eta_scal_df.sort_index(inplace=True)
+            forecast_eta_scal_df.index = pd.to_datetime(forecast_eta_scal_df.index)
+            forecast_eta_scal_df.index = forecast_eta_scal_df.index.to_series().dt.strftime("%Y-%m-%d")
+            forecast_eta_scal_df.index = pd.to_datetime(forecast_eta_scal_df.index)
 
             '''GFS Forecast'''
             qout_datasets = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).qr_gfs
-            time_dataset = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).time_gfs
+            time_dataset = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).time_frst
             forecast_gfs_df = pd.DataFrame(qout_datasets.values, index=time_dataset.values, columns=['Streamflow (m3/s)'])
             forecast_gfs_df.index.name = 'Datetime'
             forecast_gfs_df = forecast_gfs_df.append(initial_condition)
@@ -873,6 +1037,17 @@ def get_time_series_bc(request):
             forecast_gfs_df.index = pd.to_datetime(forecast_gfs_df.index)
             forecast_gfs_df.index = forecast_gfs_df.index.to_series().dt.strftime("%Y-%m-%d")
             forecast_gfs_df.index = pd.to_datetime(forecast_gfs_df.index)
+
+            '''WRF Forecast'''
+            qout_datasets = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).qr_wrf
+            time_dataset = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).time_frst
+            forecast_wrf_df = pd.DataFrame(qout_datasets.values, index=time_dataset.values, columns=['Streamflow (m3/s)'])
+            forecast_wrf_df.index.name = 'Datetime'
+            forecast_wrf_df = forecast_wrf_df.append(initial_condition)
+            forecast_wrf_df.sort_index(inplace=True)
+            forecast_wrf_df.index = pd.to_datetime(forecast_wrf_df.index)
+            forecast_wrf_df.index = forecast_wrf_df.index.to_series().dt.strftime("%Y-%m-%d")
+            forecast_wrf_df.index = pd.to_datetime(forecast_wrf_df.index)
 
             '''GEOGloWs Forecast'''
             date = nc_file[len(folder) + 1 + 23:-3]
@@ -890,11 +1065,21 @@ def get_time_series_bc(request):
         forecast_ens.to_json(forecast_ens_file_path)
 
         '''Get Forecasts Records'''
-        records = geoglows.streamflow.forecast_records(comid)
-        records.index = pd.to_datetime(records.index)
-        records[records < 0] = 0
-        records.index = records.index.to_series().dt.strftime("%Y-%m-%d %H:%M:%S")
-        records.index = pd.to_datetime(records.index)
+
+        records = pd.DataFrame()
+
+        try:
+            records_data_file_path = os.path.join(app.get_app_workspace().path, 'records_data.json')
+            records = pd.read_json(records_data_file_path, convert_dates=True)
+            records.index = pd.to_datetime(records.index)
+            records.sort_index(inplace=True, ascending=True)
+            records.index = records.index.to_series().dt.strftime("%Y-%m-%d %H:%M:%S")
+            records.index = pd.to_datetime(records.index)
+
+        except Exception as e:
+            exc_type, exc_obj, exc_tb = sys.exc_info()
+            print("error: " + str(e))
+            print("line: " + str(exc_tb.tb_lineno))
 
         '''Correct Bias Forecasts'''
         monthly_simulated = simulated_df[simulated_df.index.month == (forecast_ens.index[0]).month].dropna()
@@ -962,66 +1147,81 @@ def get_time_series_bc(request):
 
         fixed_stats = pd.concat([max_df, p75_df, mean_df, p25_df, min_df, high_res_df], axis=1)
 
-        '''Correct Bias Forecasts Records'''
-
-        date_ini = records.index[0]
-        month_ini = date_ini.month
-
-        date_end = records.index[-1]
-        month_end = date_end.month
-
-        if month_end < month_ini:
-            meses1 = np.arange(month_ini, 13, 1)
-            meses2 = np.arange(1, month_end + 1, 1)
-            meses = np.concatenate([meses1, meses2])
-        else:
-            meses = np.arange(month_ini, month_end + 1, 1)
-
         fixed_records = pd.DataFrame()
 
-        for mes in meses:
-            values = records.loc[records.index.month == mes]
+        '''Correct Bias Forecasts Records'''
+        try:
+            date_ini = records.index[0]
+            month_ini = date_ini.month
 
-            monthly_simulated = simulated_df[simulated_df.index.month == mes].dropna()
-            monthly_observed = observed_df[observed_df.index.month == mes].dropna()
+            date_end = records.index[-1]
+            month_end = date_end.month
 
-            min_simulated = np.min(monthly_simulated.iloc[:, 0].to_list())
-            max_simulated = np.max(monthly_simulated.iloc[:, 0].to_list())
+            if month_end < month_ini:
+                meses1 = np.arange(month_ini, 13, 1)
+                meses2 = np.arange(1, month_end + 1, 1)
+                meses = np.concatenate([meses1, meses2])
+            else:
+                meses = np.arange(month_ini, month_end + 1, 1)
 
-            min_factor_records_df = values.copy()
-            max_factor_records_df = values.copy()
-            fixed_records_df = values.copy()
+            fixed_records = pd.DataFrame()
 
-            column_records = values.columns[0]
-            tmp = records[column_records].dropna().to_frame()
-            min_factor = tmp.copy()
-            max_factor = tmp.copy()
-            min_factor.loc[min_factor[column_records] >= min_simulated, column_records] = 1
-            min_index_value = min_factor[min_factor[column_records] != 1].index.tolist()
+            for mes in meses:
+                values = records.loc[records.index.month == mes]
 
-            for element in min_index_value:
-                min_factor[column_records].loc[min_factor.index == element] = tmp[column_records].loc[tmp.index == element] / min_simulated
+                monthly_simulated = simulated_df[simulated_df.index.month == mes].dropna()
+                monthly_observed = observed_df[observed_df.index.month == mes].dropna()
 
-            max_factor.loc[max_factor[column_records] <= max_simulated, column_records] = 1
-            max_index_value = max_factor[max_factor[column_records] != 1].index.tolist()
+                min_simulated = np.min(monthly_simulated.iloc[:, 0].to_list())
+                max_simulated = np.max(monthly_simulated.iloc[:, 0].to_list())
 
-            for element in max_index_value:
-                max_factor[column_records].loc[max_factor.index == element] = tmp[column_records].loc[tmp.index == element] / max_simulated
+                min_factor_records_df = values.copy()
+                max_factor_records_df = values.copy()
+                fixed_records_df = values.copy()
 
-            tmp.loc[tmp[column_records] <= min_simulated, column_records] = min_simulated
-            tmp.loc[tmp[column_records] >= max_simulated, column_records] = max_simulated
-            fixed_records_df.update(pd.DataFrame(tmp[column_records].values, index=tmp.index, columns=[column_records]))
-            min_factor_records_df.update(pd.DataFrame(min_factor[column_records].values, index=min_factor.index, columns=[column_records]))
-            max_factor_records_df.update(pd.DataFrame(max_factor[column_records].values, index=max_factor.index, columns=[column_records]))
+                column_records = values.columns[0]
+                tmp = records[column_records].dropna().to_frame()
+                min_factor = tmp.copy()
+                max_factor = tmp.copy()
+                min_factor.loc[min_factor[column_records] >= min_simulated, column_records] = 1
+                min_index_value = min_factor[min_factor[column_records] != 1].index.tolist()
 
-            corrected_values = geoglows.bias.correct_forecast(fixed_records_df, simulated_df, observed_df)
-            corrected_values = corrected_values.multiply(min_factor_records_df, axis=0)
-            corrected_values = corrected_values.multiply(max_factor_records_df, axis=0)
-            fixed_records = fixed_records.append(corrected_values)
+                for element in min_index_value:
+                    min_factor[column_records].loc[min_factor.index == element] = tmp[column_records].loc[tmp.index == element] / min_simulated
 
-        fixed_records.sort_index(inplace=True)
+                max_factor.loc[max_factor[column_records] <= max_simulated, column_records] = 1
+                max_index_value = max_factor[max_factor[column_records] != 1].index.tolist()
+
+                for element in max_index_value:
+                    max_factor[column_records].loc[max_factor.index == element] = tmp[column_records].loc[tmp.index == element] / max_simulated
+
+                tmp.loc[tmp[column_records] <= min_simulated, column_records] = min_simulated
+                tmp.loc[tmp[column_records] >= max_simulated, column_records] = max_simulated
+                fixed_records_df.update(pd.DataFrame(tmp[column_records].values, index=tmp.index, columns=[column_records]))
+                min_factor_records_df.update(pd.DataFrame(min_factor[column_records].values, index=min_factor.index, columns=[column_records]))
+                max_factor_records_df.update(pd.DataFrame(max_factor[column_records].values, index=max_factor.index, columns=[column_records]))
+
+                corrected_values = geoglows.bias.correct_forecast(fixed_records_df, simulated_df, observed_df)
+                corrected_values = corrected_values.multiply(min_factor_records_df, axis=0)
+                corrected_values = corrected_values.multiply(max_factor_records_df, axis=0)
+                fixed_records = fixed_records.append(corrected_values)
+
+            fixed_records.sort_index(inplace=True)
+
+        except Exception as e:
+            exc_type, exc_obj, exc_tb = sys.exc_info()
+            print("error: " + str(e))
+            print("line: " + str(exc_tb.tb_lineno))
+
 
         '''Return Periods SONICS'''
+        return_periods_values = xr.open_dataset(nc_file, autoclose=True).sel(comid=comid).threshold
+        return_periods_values = return_periods_values.values
+        return_periods = [10, 5, 2.33]
+
+        d = {'rivid': [comid], 'return_period_10': [return_periods_values[2]],
+             'return_period_5': [return_periods_values[1]], 'return_period_2_33': [return_periods_values[0]]}
+
         max_annual_flow = corrected_df.groupby(corrected_df.index.strftime("%Y")).max()
         params = distr.gev.lmom_fit(max_annual_flow.iloc[:, 0].values.tolist())
 
@@ -1085,13 +1285,19 @@ def get_time_series_bc(request):
         x_vals = (fixed_stats.index[0], fixed_stats.index[len(fixed_stats.index) - 1], fixed_stats.index[len(fixed_stats.index) - 1], fixed_stats.index[0])
         max_visible = max(fixed_stats.max())
 
-        record_plot = fixed_records.copy()
-        record_plot = record_plot.loc[record_plot.index >= pd.to_datetime(fixed_stats.index[0] - dt.timedelta(days=8))]
-        record_plot = record_plot.loc[record_plot.index <= pd.to_datetime(fixed_stats.index[0] + dt.timedelta(days=2))]
+        try:
+            record_plot = fixed_records.copy()
+            record_plot = record_plot.loc[record_plot.index >= pd.to_datetime(fixed_stats.index[0] - dt.timedelta(days=8))]
+            record_plot = record_plot.loc[record_plot.index <= pd.to_datetime(fixed_stats.index[0] + dt.timedelta(days=2))]
+
+        except Exception as e:
+            exc_type, exc_obj, exc_tb = sys.exc_info()
+            print("error: " + str(e))
+            print("line: " + str(exc_tb.tb_lineno))
 
         if len(records.index) > 0:
             hydroviewer_figure.add_trace(go.Scatter(
-                name='1st days forecasts',
+                name='1st days forecasts GEOGLowS',
                 x=record_plot.index,
                 y=record_plot.iloc[:, 0].values,
                 line=dict(
@@ -1106,12 +1312,12 @@ def get_time_series_bc(request):
         records_df = historical_simulation_df.loc[historical_simulation_df.index >= pd.to_datetime(historical_simulation_df.index[-1] - dt.timedelta(days=8))]
         records_df = records_df.loc[records_df.index <= pd.to_datetime(historical_simulation_df.index[-1] + dt.timedelta(days=2))]
 
-        if len(records_df.index) > 0:
+        if len(records.index) > 0:
             hydroviewer_figure.add_trace(go.Scatter(
-                name='SONICS',
+                name='1st days forecasts SONICS',
                 x=records_df.index,
                 y=records_df.iloc[:, 0].values,
-                line=dict(color='green', )
+                line=dict(color='#FFA15A', )
             ))
 
             x_vals = (records_df.index[0], fixed_stats.index[len(fixed_stats.index) - 1], fixed_stats.index[len(fixed_stats.index) - 1],records_df.index[0])
@@ -1129,16 +1335,38 @@ def get_time_series_bc(request):
 
             max_visible = max(max(forecast_gfs_df.max()), max_visible)
 
-        if len(forecast_eta_df.index) > 0:
+        if len(forecast_eta_eqm_df.index) > 0:
             hydroviewer_figure.add_trace(go.Scatter(
-                name='ETA Forecast',
-                x=forecast_eta_df.index,
-                y=forecast_eta_df['Streamflow (m3/s)'],
+                name='ETA eqm Forecast',
+                x=forecast_eta_eqm_df.index,
+                y=forecast_eta_eqm_df['Streamflow (m3/s)'],
                 showlegend=True,
                 line=dict(color='blue', dash='dash')
             ))
 
-            max_visible = max(max(forecast_eta_df.max()), max_visible)
+            max_visible = max(max(forecast_eta_eqm_df.max()), max_visible)
+
+        if len(forecast_eta_scal_df.index) > 0:
+            hydroviewer_figure.add_trace(go.Scatter(
+                name='ETA scal Forecast',
+                x=forecast_eta_scal_df.index,
+                y=forecast_eta_scal_df['Streamflow (m3/s)'],
+                showlegend=True,
+                line=dict(color='green', dash='dash')
+            ))
+
+            max_visible = max(max(forecast_eta_scal_df.max()), max_visible)
+
+        if len(forecast_wrf_df.index) > 0:
+            hydroviewer_figure.add_trace(go.Scatter(
+                name='WRF Forecast',
+                x=forecast_wrf_df.index,
+                y=forecast_wrf_df['Streamflow (m3/s)'],
+                showlegend=True,
+                line=dict(color='black', dash='dash')
+            ))
+
+            max_visible = max(max(forecast_wrf_df.max()), max_visible)
 
         '''Getting Return Periods'''
         r2_33 = int(rperiods_bc_geoglows.iloc[0]['return_period_2_33'])
