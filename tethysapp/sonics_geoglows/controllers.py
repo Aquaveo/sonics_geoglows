@@ -862,31 +862,21 @@ def get_geoglows_forecast_data_csv(request):
     Returns Forecast data as csv
     """""
 
+    get_data = request.GET
+
     try:
-        get_data = request.GET
-        # get stream attributes
-        comid = get_data['comid']
-        region = get_data['region']
-        subbasin = get_data['subbasin']
+
+        # get station attributes
         watershed = get_data['watershed']
+        subbasin = get_data['subbasin']
+        comid = get_data['comid']
         startdate = get_data['startdate']
 
-        folder = app.get_custom_setting('folder')
-
-        '''Getting Forecast Stats'''
-        if startdate != '':
-            res = requests.get('https://geoglows.ecmwf.int/api/ForecastEnsembles/?reach_id=' + comid + '&date=' + startdate + '&return_format=csv', verify=False).content
-        else:
-            forecast_nc_list = sorted(glob(os.path.join(folder, "*.nc")), reverse=True)
-            nc_file = forecast_nc_list[0]
-            date = nc_file[len(folder) + 1 + 23:-3]
-            res = requests.get('https://geoglows.ecmwf.int/api/ForecastEnsembles/?reach_id=' + comid + '&date=' + startdate + '&return_format=csv',verify=False).content
-
-        forecast_ens = pd.read_csv(io.StringIO(res.decode('utf-8')), index_col=0)
+        '''Get Forecast Ensemble Data'''
+        forecast_ens_file_path = os.path.join(app.get_app_workspace().path, 'forecast_ens.json')
+        forecast_ens = pd.read_json(forecast_ens_file_path, convert_dates=True)
         forecast_ens.index = pd.to_datetime(forecast_ens.index)
-        forecast_ens[forecast_ens < 0] = 0
-        forecast_ens.index = forecast_ens.index.to_series().dt.strftime("%Y-%m-%d %H:%M:%S")
-        forecast_ens.index = pd.to_datetime(forecast_ens.index)
+        forecast_ens.sort_index(inplace=True, ascending=True)
 
         # Writing CSV
         response = HttpResponse(content_type='text/csv')
